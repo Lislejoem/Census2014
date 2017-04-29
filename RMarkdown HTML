@@ -1,0 +1,943 @@
+---
+title: "Exploration into 2014 Population Data"
+author: "Joseph Lisle"
+date: "April 23, 2017"
+output:
+ html_document:
+  theme: lumen
+  highlight: tango
+  number_sections: yes
+  toc: yes
+---
+
+# Introduction and Maps for Initial Data Exploration
+ 
+I initially compiled this dataset to encourage the exploration of the intersectionality among various sources of government data. Though there are many variables from distinct categories (Economic, Census, and Energy), I am only going to look at one category because even finding the relationships among a few variables takes time. In this particular notebook, I will analyze the census data from 2014. 
+
+
+Here is a full list of the variables in the entire dataset for reference: https://www.kaggle.com/lislejoem/us_energy_census_gdp_10-14
+
+Note that this is my first large-scale project and Kaggle notebook, so any feedback is heavily appreciated!
+
+## Loading Packages
+
+```{r, message=FALSE}
+# Load data and packages
+library(ggplot2)
+library(dplyr)
+library(mapproj)
+```
+
+## Loading the data and breaking into categories
+
+```{r, message = FALSE, warning=FALSE}
+
+# Loading the data and preparing it for mapping in ggplot
+Data <- read.csv("Energy Census and Economic Data US 2010-2014.csv")
+StateData <- subset(Data, StateCodes != "US" & StateCodes != "DC") # Getting rid of US and DC row, as I'll be mapping data using ggplot
+StateData$State <- tolower(as.character(StateData$State)) # Preparing state names so that ggplot can read for mapping
+
+# Adding some region names to replace the numbers for clarification
+StateData$Region <- 
+  ifelse(StateData$Region == 1, "Northeast",
+  ifelse(StateData$Region == 2, "Midwest",
+  ifelse(StateData$Region == 3, "South", "West")))
+
+# Adding some division names now
+StateData$Division <-
+  ifelse(StateData$Division == 1, "New England",
+  ifelse(StateData$Division == 2, "Middle Atlantic",
+  ifelse(StateData$Division == 3, "East North Central",
+  ifelse(StateData$Division == 4, "West North Central",
+  ifelse(StateData$Division == 5, "South Atlantic",
+  ifelse(StateData$Division == 6, "East South Central",
+  ifelse(StateData$Division == 7, "West South Central",
+  ifelse(StateData$Division == 8, "Mountain", "Pacific"))))))))
+
+# Adding some clarification for Great Lakes and Coast
+StateData$Coast <- ifelse(StateData$Coast == 0, "Not Coast", "Coast")
+StateData$Great.Lakes <- ifelse(StateData$Great.Lakes == 0, "Not Great Lakes", "Great Lakes")
+
+# Loading the US map for ggplot
+us <- map_data("state") 
+ 
+# Creating the baseline map for maps further below
+USMap <- ggplot() + geom_map(data=us, map=us, aes(x=long, y=lat, map_id=region), fill="#ffffff", color="#ffffff")
+
+# Preparing data set with only 2014 census data
+Census2014 <- data.frame(StateData$StateCodes, StateData$State, StateData$Region, StateData$Division, StateData$Coast, StateData$Great.Lakes, StateData$POPESTIMATE2014, StateData$RBIRTH2014, StateData$RDEATH2014, StateData$RNATURALINC2014, StateData$RINTERNATIONALMIG2014, StateData$RDOMESTICMIG2014, StateData$RNETMIG2014)
+
+# Renaming the columns to something a bit shorter
+Census2014 <- rename(Census2014,
+    StateCodes = StateData.StateCodes,
+    State = StateData.State,
+    Region = StateData.Region,
+    Division = StateData.Division,
+    Coast = StateData.Coast,
+    Great.Lakes = StateData.Great.Lakes,
+    Population = StateData.POPESTIMATE2014,
+    BirthRate = StateData.RBIRTH2014,
+    DeathRate = StateData.RDEATH2014,
+    NatIncRate = StateData.RNATURALINC2014,
+    IntMigRate = StateData.RINTERNATIONALMIG2014,
+    DomMigRate = StateData.RDOMESTICMIG2014,
+    NetMigRate = StateData.RNETMIG2014)
+
+# Taking an initial peek 
+str(Census2014)
+```
+
+The data look how they are supposed to after some cleaning, so now I will get started by looking into the regions and divisions, as determined by the census.
+
+## Maps of Regions and Divisions {.tabset}
+
+In this section, I will look at the various variables through mapping. Analysis of the variables will take place later, but I want to get an idea of what the data are.
+
+### Regions Map
+
+```{r, message=FALSE, warning=FALSE}
+# Color scheme for the regions map
+RegColMap <- c("Midwest" = "#F44130", "Northeast" = "#0F7DC6", "South" = "#FFD04F", "West" = "#57DB60")
+
+# Creating the region map
+GGRegion <- USMap # Loading the map
+GGRegion <- GGRegion + geom_map(data=Census2014, map=us, aes(fill=Region, map_id=State), color="#ffffff") # Setting the map to my specifications
+GGRegion <- GGRegion + scale_fill_manual(values = RegColMap) + theme(panel.border=element_blank(), panel.background=element_blank(), axis.ticks=element_blank(), axis.text=element_blank()) + labs(x=NULL, y=NULL, fill=NULL, title="US Regions") + coord_map("albers", lat0=39, lat1=45) # Making the map beautiful
+GGRegion
+```
+
+### Divisions Map
+
+```{r, message=FALSE, warning=FALSE}
+# Color scheme for the divisions map (and later graphics)
+DivColMap <- c("East North Central" = "#323644", "East South Central" = "#06d6a0", "Middle Atlantic" = "#0F7DC6", "Mountain" = "#57DB60", "New England" = "#EF326B", "Pacific" = "#B354F2", "South Atlantic" = "#FFD04F", "West North Central" = "#F44130", "West South Central" = "#F48530")
+
+# Creating the division map
+GGDivision <- USMap # Loading the map
+GGDivision <- GGDivision + geom_map(data=Census2014, map=us, aes(fill=Division, map_id=State), color="#ffffff") # Setting the map to my specifications
+GGDivision <- GGDivision + scale_fill_manual(values = DivColMap) + theme(panel.border=element_blank(), panel.background=element_blank(), axis.ticks=element_blank(), axis.text=element_blank()) + labs(x=NULL, y=NULL, fill=NULL, title="US Divisions") + coord_map("albers", lat0=39, lat1=45) # Making the map beautiful
+GGDivision
+```
+
+## Population and Birth, Death, and Natural Increase Rates (Maps) {.tabset}
+
+I am interested to see how the population and birth, death, and natural increase rates look across the nation.
+
+### Population Map
+
+```{r, message=FALSE, warning=FALSE}
+# 2014 Population Estimate
+Pop2014 <- USMap # Loading the map
+Pop2014 <- Pop2014 + geom_map(data=Census2014, map=us, aes(fill=(Population/1000000), map_id=State), color="#ffffff") # Adding specifications
+Pop2014 <- Pop2014 + theme(panel.border=element_blank(), panel.background=element_blank(), axis.ticks=element_blank(), axis.text=element_blank()) + labs(x=NULL, y=NULL, fill=NULL, title="Population (Millions)") + coord_map("albers", lat0=39, lat1=45) # Making the map beautiful
+Pop2014
+```  
+
+Unsurprisingly, the most populous states are California, Texas, Florida, and New York. This population map will help those not familiar with the population spread of the US.
+
+### Map of Birth Rate Map
+
+```{r, message=FALSE, warning=FALSE}
+# 2014 Birth Rate
+Birth2014 <- USMap # Loading the map
+Birth2014 <- Birth2014 + geom_map(data=Census2014, map=us, aes(fill=BirthRate, map_id=State), color="#ffffff") # Adding specifications
+Birth2014 <- Birth2014 + theme(panel.border=element_blank(), panel.background=element_blank(), axis.ticks=element_blank(), axis.text=element_blank()) + labs(x=NULL, y=NULL, fill=NULL, title="Birth Rate (per thousand)") + coord_map("albers", lat0=39, lat1=45) # Making the map beautiful
+Birth2014
+```  
+
+It appears that Utah has a very high birth rate compared with the rest of the US.
+
+### Map of Death Rate
+
+```{r, message=FALSE, warning=FALSE}
+# 2014 Death Rate
+Death2014 <- USMap # Loading the map
+Death2014 <- Death2014 + geom_map(data=Census2014, map=us, aes(fill=DeathRate, map_id=State), color="#ffffff") # Adding specifications
+Death2014 <- Death2014 + theme(panel.border=element_blank(), panel.background=element_blank(), axis.ticks=element_blank(), axis.text=element_blank()) + labs(x=NULL, y=NULL, fill=NULL, title="Death Rate (per thousand)") + coord_map("albers", lat0=39, lat1=45) # Making the map beautiful
+Death2014
+```  
+
+West Virginia appears to have a large death rate - over 1% each year!
+
+### Map of Natural Population Increase
+
+```{r, message=FALSE, warning=FALSE}
+# 2014 Natural Population Increase
+NatInc2014 <- USMap # Loading the map
+NatInc2014 <- NatInc2014 + geom_map(data=Census2014, map=us, aes(fill=NatIncRate, map_id=State), color="#ffffff") # Adding specifications
+NatInc2014 <- NatInc2014 + theme(panel.border=element_blank(), panel.background=element_blank(), axis.ticks=element_blank(), axis.text=element_blank()) + labs(x=NULL, y=NULL, fill=NULL, title="Natural Increase Rate (per thousand)") + coord_map("albers", lat0=39, lat1=45) # Making the map beautiful
+NatInc2014
+```  
+
+As the natural increase is simply measured by taking the death rate from the birth rate, it is unsurprising that Utah's is so large.
+
+## Migration Maps {.tabset}
+
+For now, I will graph a few more population variables to get a sense of what the data show before conducting further analysis.
+
+### International Migration Map
+
+```{r, message=FALSE, warning=FALSE}
+# International Migration Rates
+IntMig2014 <- USMap # Loading the map
+IntMig2014 <- IntMig2014 + geom_map(data=Census2014, map=us, aes(fill=IntMigRate, map_id=State), color="#ffffff") # Adding specifications
+IntMig2014 <- IntMig2014 + theme(panel.border=element_blank(), panel.background=element_blank(), axis.ticks=element_blank(), axis.text=element_blank()) + labs(x=NULL, y=NULL, fill=NULL, title="International Migration Rate (per thousand)") + coord_map("albers", lat0=39, lat1=45) # Making the map beautiful
+IntMig2014
+```  
+
+The rate of international migration is higher for populous coastal states, namely Florida, New York, Massachusetts, New Jersey, Virginia, California, etc.
+
+### Domestic Migration Map
+```{r, message=FALSE, warning=FALSE}
+# Domestic Migration Rates
+DomMig2014 <- USMap # Loading the map
+DomMig2014 <- DomMig2014 + geom_map(data=Census2014, map=us, aes(fill=DomMigRate, map_id=State), color="#ffffff") # Adding specifications
+DomMig2014 <- DomMig2014 + theme(panel.border=element_blank(), panel.background=element_blank(), axis.ticks=element_blank(), axis.text=element_blank()) + labs(x=NULL, y=NULL, fill=NULL, title="Domestic Migration Rate (per thousand)") + coord_map("albers", lat0=39, lat1=45) + scale_fill_gradient2(low="red", mid="grey", high="green") # Making the map beautiful
+DomMig2014
+```  
+
+The rate of domestic migration definitely favors the south east and north west US more.
+
+### Net Migration Map
+```{r, message=FALSE, warning=FALSE}
+# Net Migration Rates
+NetMig2014 <- USMap # Loading the map
+NetMig2014 <- NetMig2014 + geom_map(data=Census2014, map=us, aes(fill=NetMigRate, map_id=State), color="#ffffff") # Adding specifications
+NetMig2014 <- NetMig2014 + theme(panel.border=element_blank(), panel.background=element_blank(), axis.ticks=element_blank(), axis.text=element_blank()) + labs(x=NULL, y=NULL, fill=NULL, title="Net Migration Rate (per thousand)") + coord_map("albers", lat0=39, lat1=45) + scale_fill_gradient2(low="red", mid="grey", high="green") # Making the map beautiful
+NetMig2014
+```  
+
+Similar to the natural increase, the net migration is simply an addition of the domestic and international migration rate. 
+As a result, states like Florida, California, and Texas, which gain large amounts of domestic and international migrants, have high net migration. 
+On the other hand, states like Illinois and New York, which gain a lot of international migrants but lose domestic migrants, have a lower net migration rate.
+
+## Maps of Population Change {.tabset}
+
+Before I look past the maps, I am interested in seeing how the population changed from 2013 to 2014. I think this will give me a much better sense of the data.
+
+```{r, message=FALSE, warning=FALSE}
+# Creating the variables to map
+Census2014$PopChangeRate2014 <- Census2014$Population / StateData$POPESTIMATE2013
+Census2014$PopChange2014 <- Census2014$Population - StateData$POPESTIMATE2013
+```
+
+### Rate of Population Change (Map)
+```{r, message=FALSE, warning=FALSE}
+PopChangeRate2014 <- USMap # Loading the map
+PopChangeRate2014 <- PopChangeRate2014 + geom_map(data=Census2014, map=us, aes(fill=PopChangeRate2014, map_id=State), color="#ffffff") # Adding specifications
+PopChangeRate2014 <- PopChangeRate2014 + theme(panel.border=element_blank(), panel.background=element_blank(), axis.ticks=element_blank(), axis.text=element_blank()) + labs(x=NULL, y=NULL, fill=NULL, title="Population Change Rate") + coord_map("albers", lat0=39, lat1=45) # Making the map beautiful
+PopChangeRate2014
+```
+
+South Dakota is growing the quickest, but southern states like Florida, Texas, and South Carolina and western states like Nevada, Idaho, Utah, and Colorado are growing quickly too. 
+
+### Numbers of Population Change (Map)
+```{r, message=FALSE, warning=FALSE}
+PopChange2014 <- USMap # Loading the map
+PopChange2014 <- PopChange2014 + geom_map(data=Census2014, map=us, aes(fill=(PopChange2014/1000), map_id=State), color="#ffffff") # Adding specifications
+PopChange2014 <- PopChange2014 + theme(panel.border=element_blank(), panel.background=element_blank(), axis.ticks=element_blank(), axis.text=element_blank()) + labs(x=NULL, y=NULL, fill=NULL, title="Population Change (Thousands)") + coord_map("albers", lat0=39, lat1=45) # Making the map beautiful
+PopChange2014
+```
+
+Unsurprisingly, the states that gained the most population were California, Texas, and Florida. 
+
+# Analyses
+
+## Big Picture
+
+```{r, message=FALSE, warning=FALSE}
+# Looking at all the variables to provide context and identify trends
+pairs(subset(Census2014, select=c("Region", "Division", "Population", "BirthRate", "DeathRate", "NatIncRate", "IntMigRate", "DomMigRate", "NetMigRate", "PopChangeRate2014")))
+```
+
+Though this graphic has a lot of information (and may be difficult to see based on the size of your screen), it allows us to see 2 incredibly valuable pieces of information very easily and quickly:  
+* The birth, death, and natural increase rates seem to be highly correlated. Additionally, the domestic and net migration rates, along with the population change rages, are highly correlated.  
+* We are able to see the trends among the Regions and Divisions (think of the scatter plots for Region and Division as box plots).
+
+## Population, Birth, Death, and Natural Increase {.tabset}
+
+To begin the analysis, I will start with just looking at the relationship among a cluster of similar variables - population and rates of birth, death, and natural increase.
+
+```{r, warning=FALSE, message=FALSE}
+# Pairs of the population and birth, death, and natural increase rates
+pairs(subset(Census2014, select=c("Region", "Division", "Population", "BirthRate", "DeathRate", "NatIncRate")))
+```
+
+As noticed earlier, it appears there is a strong relationship between Birth Rate, Death Rate, and Natural Increase Rate. Of course, the strong correlations with Natural Increase Rate are because it is calculated by subtracting the death rate from the birth rate. 
+
+I am interested to see how these rates differ by division.
+
+```{r, message=FALSE, warning=FALSE}
+# Birth, Death, and Natural Increase Rates by Division
+
+group_by(Census2014, Division) %>%
+  summarise(BirthRate = round(mean(BirthRate), 2), DeathRate = round(mean(DeathRate), 2), NatIncRate = round(mean(NatIncRate), 2))
+```
+
+New England has the lowest birth rate by far. Similarly, the East South Central has quite a high death rate compared with other divisions. 
+
+As the maps above show that particular states stand out, I am interested to see which states are affecting these trends...
+
+### Birth Rates (Low)
+```{r, message=FALSE, warning=FALSE}
+# States with 10 lowest birth rates by division
+
+# Creating table of states with 10 lowest birth rates
+BirthRateLow <- select(Census2014, State, Division, BirthRate) %>%
+  filter(BirthRate <= sort(BirthRate)[10]) %>%
+  mutate(BirthRate = round(BirthRate, 2))
+
+# Table of states with 10 lowest birth rates
+BirthRateLow %>%
+  arrange(desc(BirthRate))
+
+# Graph of states with 10 lowest birth rates
+BirthRateLowBar <- ggplot(BirthRateLow, aes(reorder(State, BirthRate), BirthRate, fill=Division)) # Creating the basic graph
+BirthRateLowBar <- BirthRateLowBar + geom_col() + coord_flip() + labs(y="Birth Rate (per Thousand)", x="State", title="Birth Rate (per Thousand) by State")  + scale_fill_manual(values=DivColMap)
+BirthRateLowBar
+```
+
+* No wonder New England has such a low average birth rate - all 6 states are in the lowest 10 in birth rate! 
+* The other 4 states within the lowest 10 birth rates are more scattered, but still in the Eastern part of the US (Michigan is the farthest west). 
+I am interested to see how migration rates affect the overall population change in these states, as they are not [re]producing many people themselves.
+
+### Birth Rates (High)
+```{r, message=FALSE, warning=FALSE}
+# States with 10 highest birth rates by division
+
+# Creating table of states with 10 highest birth rates
+BirthRateHigh <- select(Census2014, State, Division, BirthRate) %>%
+  filter(BirthRate >= sort(BirthRate)[41]) %>%
+  mutate(BirthRate = round(BirthRate, 2))
+
+# Table of states with 10 highest birth rates
+BirthRateHigh %>%
+  arrange(desc(BirthRate))
+
+# Graph of states with 10 highest birth rates
+BirthRateHighBar <- ggplot(BirthRateHigh, aes(reorder(State, BirthRate), BirthRate, fill=Division)) # Creating the basic graph
+BirthRateHighBar <- BirthRateHighBar + geom_col() + coord_flip() + labs(y="Birth Rate (per Thousand)", x="State", title="Birth Rate (per Thousand) by State")  + scale_fill_manual(values=DivColMap)
+BirthRateHighBar
+```
+
+* Following the trends with the lowest birth rates, the states with the highest birth rates are in the west. Notably, 4 out of 7 states in the West North Central division are within the top 10 birth rates.
+* I am most interested as to why Utah's birth rate is so high. 
+    + After some quick research, it appears that a large of this may be because of the number of people in Utah who belong to The Church of Jesus Christ of Latter-day Saints, a religious group that highly values family. Here is an article that looks more into this, though not as scientifically as I would prefer: http://www.deseretnews.com/article/700251966/Utahs-birthrate-highest-in-US.html
+* I am also interested in why both Alaska *and* Hawai'i are within the top 10. There may not be a trend here, but it is interesting that both the states not in the continental US are within this list. (Hawai'i just barely made it, and Alaska is second after Utah, so I may be trying to find a trend where there is not one.)
+
+### Death Rates (Low)
+```{r, message=FALSE, warning=FALSE}
+# States with 10 lowest death rates by division
+
+# Creating table of states with 10 lowest death rates
+DeathRateLow <- select(Census2014, State, Division, DeathRate) %>%
+  filter(DeathRate <= sort(DeathRate)[10]) %>%
+  mutate(DeathRate = round(DeathRate,2))
+
+# Table of states with 10 lowest death rates
+DeathRateLow %>%
+  arrange(desc(DeathRate))
+
+# Graph of states with 10 lowest death rates
+DeathRateLowBar <- ggplot(DeathRateLow, aes(reorder(State, DeathRate), DeathRate, fill=Division)) # Creating the basic graph
+DeathRateLowBar <- DeathRateLowBar + geom_col() + coord_flip() + labs(y="Death Rate (per Thousand)", x="State", title="Death Rate (per Thousand) by State")  + scale_fill_manual(values=DivColMap)
+DeathRateLowBar
+```
+
+* Unsurprisingly, 4 out of the 10 states with the lowest death rates are also states within the top 10 of highest birth rates (Utah, Idaho, Texas, and Alaska). Additionally, the two lowest are the states with the 2 highest birth rates (Utah and Alaska).
+* Though most of these states are in the west, 2 states (Georgia and Virginia) are along the Atlantic.
+
+### Death Rates (High)
+```{r, message=FALSE, warning=FALSE}
+# States with 10 highest death rates by division
+
+# Creating table of states with 10 highest death rates
+DeathRateHigh <- select(Census2014, State, Division, DeathRate) %>%
+  filter(DeathRate >= sort(DeathRate)[41]) %>%
+  mutate(DeathRate = round(DeathRate, 2))
+
+# Table of states with 10 highest death rates
+DeathRateHigh %>%
+  arrange(desc(DeathRate))
+
+# Graph of states with 10 highest death rates
+DeathRateHighBar <- ggplot(DeathRateHigh, aes(reorder(State, DeathRate), DeathRate, fill=Division)) # Creating the basic graph
+DeathRateHighBar <- DeathRateHighBar + geom_col() + coord_flip() + labs(y="Death Rate (per Thousand)", x="State", title="Death Rate (per Thousand) by State")  + scale_fill_manual(values=DivColMap)
+DeathRateHighBar
+```
+
+* The first thing to notice is West Virginia's incredibly high death rate (comparatively). It appears that this could be partially due to the opioid epedemic ravaging the state in the past few years (https://www.washingtonpost.com/news/wonk/wp/2017/03/07/drugs-are-killing-so-many-people-in-west-virginia-the-state-cant-keep-up-with-the-funerals/?utm_term=.f460199e34d5).
+* Three out of the 4 states in the East South Central division are within the 10 highest death rates, which is rather alarming.
+* Similar to low birth rates, _most of the states (all but Oklahoma and Arizona) are in the east._
+
+### Nat. Inc. Rates (Low)
+```{r, message=FALSE, warning=FALSE}
+# States with 10 lowest natural increase rates by state and division
+
+# Creating table of states with 10 lowest natural increase rates
+NatIncRateLow <- select(Census2014, State, Division, NatIncRate) %>%
+  filter(NatIncRate <= sort(NatIncRate)[10]) %>%
+  mutate(NatIncRate = round(NatIncRate, 2))
+
+# Table of states with 10 lowest natural increase rates
+NatIncRateLow %>%
+  arrange(desc(NatIncRate))
+
+# Graph of states with 10 lowest natural increase rates
+NatIncRateLowBar <- ggplot(NatIncRateLow, aes(reorder(State, NatIncRate), NatIncRate, fill=Division)) # Creating the basic graph
+NatIncRateLowBar <- NatIncRateLowBar + geom_col() + coord_flip() + labs(y="Natural Increase Rate (per Thousand)", x="State", title="Natural Increase Rate (per Thousand) by State")  + scale_fill_manual(values=DivColMap)
+NatIncRateLowBar
+```
+
+* Most notably, _2 states have natural increase rates below 0_ (West Virginia and Maine)! It appears that Maine is just getting older and its people are not having as many babies (http://www.pressherald.com/2013/03/14/census-maine-counties-losing-population/). With West Virginia's lower-than-average birth rate and incredibly high death rate, this number makes sense.
+* As expected, half of the states in the bottom 10 natural increase rates are from New England (5/6 of the New England states are within the bottom 10).
+* The bottom 10 are comprised of states in the east, following the earlier trends.
+    
+### Nat. Inc. Rates (High)
+```{r, message=FALSE, warning=FALSE}
+# States with 10 highest natural increase rates by state and division
+
+# Creating table of states with 10 lowest natural increase rates
+NatIncRateHigh <- select(Census2014, State, Division, NatIncRate) %>%
+  filter(NatIncRate >= sort(NatIncRate)[41]) %>%
+  mutate(NatIncRate = round(NatIncRate, 2))
+
+# Table of states with 10 highest natural increase rates
+NatIncRateHigh %>%
+  arrange(desc(NatIncRate)) # States with 10 highest rates of natural increase
+
+# Graph of states with 10 lowest natural increase rates
+NatIncRateHighBar <- ggplot(NatIncRateHigh, aes(reorder(State, NatIncRate), NatIncRate, fill=Division)) # Creating the basic graph
+NatIncRateHighBar <- NatIncRateHighBar + geom_col() + coord_flip() + labs(y="Natural Increase Rate (per Thousand)", x="State", title="Natural Increase Rate (per Thousand) by State")  + scale_fill_manual(values=DivColMap)
+NatIncRateHighBar
+```
+
+* Unsurprisingly, Utah is number one in terms of rate of natural increase. as a result of their high birth rate and low death rate.
+* Four out of 7 states in the West North Central are represented in the top 10, and 3 states in the mountain division. 
+
+## Migration Rates by Division {.tabset}
+
+First, I will look at the migration rates by state. Both the rates (per thousand people) and actual numbers of people are important to look at, so the actual numbers are reviewed in the next section.
+
+```{r, warning=FALSE, message=FALSE}
+pairs(subset(Census2014, select=c("Region", "Division", "IntMigRate", "DomMigRate", "NetMigRate")))
+```
+
+* Right away, I notice that domestic migration and net migration are heavily correlated, indicating the domestic migration has a larger effect on net migration than international migration. 
+* It also looks like there are some trends within the regions and divisions, as some regions and divisions are more clustered and others are more spread out. 
+
+I am interested to see how the rates are broken down by division.
+
+### Int. Migration Rate
+```{r, message=FALSE, warning=FALSE}
+# International Migration Rates by Division
+
+# Table of international migration rates by division
+IntMigDivRateTbl <- group_by(Census2014, Division) %>%
+  summarise(IntMigRate = round(mean(IntMigRate), 2)) %>%
+  arrange(desc(IntMigRate))
+IntMigDivRateTbl
+
+# Graph of international migration rates by division
+IntMigDivRateBar <- ggplot(IntMigDivRateTbl, aes(reorder(Division, IntMigRate), IntMigRate, fill=Division)) # Creating basic graphic
+IntMigDivRateBar <- IntMigDivRateBar + geom_col() + coord_flip() + labs(y="International Migration Rate (per Thousand)", x="Division", title="Average International Migration Rate (per Thousand) by Division")  + scale_fill_manual(values=DivColMap) + theme(legend.position="None")
+IntMigDivRateBar
+```
+
+* Given that the average international migration rate is above 0 for every division, I was a bit surprised to find that the international migration rate _also includes people moving outside of the United States_. (https://www.census.gov/population/www/documentation/twps0051/twps0051.html).
+* I am not surprised to see that the International migration rate for the Middle Atlantic is so high as the maps above hinted at this trend.
+
+### Dom. Migration Rate
+```{r, message=FALSE, warning=FALSE}
+# Domestic Migration Rates by Division
+
+# Creating table of domestic migration rates by division
+DomMigDivRateTbl <- group_by(Census2014, Division) %>%
+  summarise(DomMigRate = round(mean(DomMigRate), 2)) %>%
+  arrange(desc(DomMigRate))
+DomMigDivRateTbl
+
+# Creating graph of domestic migration rates by division
+DomMigDivRateBar <- ggplot(DomMigDivRateTbl, aes(reorder(Division, DomMigRate), DomMigRate, fill=Division)) # Creating the basic graph
+DomMigDivRateBar <- DomMigDivRateBar + geom_col() + coord_flip() + labs(y="Domestic Migration Rate (per Thousand)", x="Division", title="Average Domestic Migration Rate (per Thousand) by Division")  + scale_fill_manual(values=DivColMap) + theme(legend.position="None")
+DomMigDivRateBar
+```
+
+* Again, following the trends identified in the maps above, I am unsurprised that the domestic migration rate for the Middle Atlantic is so low.
+* That being said, I _am_ surprised to see that other divisions are losing so many people through domestic migration.
+
+### Net Migration Rate
+```{r, message=FALSE, warning=FALSE}
+# Net Migration Rates by Division
+
+# Creating Table of Net Migration Rates by Division
+NetMigDivRateTbl <- group_by(Census2014, Division) %>%
+  summarize(NetMigRate= round(mean(NetMigRate), 2))
+
+NetMigDivRateTbl %>%
+  arrange(desc(NetMigRate))
+
+# Creating Graph of Net Migration Rates by Division
+NetMigDivRateBar <- ggplot(NetMigDivRateTbl, aes(reorder(Division, NetMigRate), NetMigRate, fill=Division)) # Creating the basic graph
+NetMigDivRateBar <- NetMigDivRateBar + geom_col() + coord_flip() + labs(y="Net Migration Rate (per Thousand)", x="Division", title="Average Net Migration Rate (per Thousand) by Division")  + scale_fill_manual(values=DivColMap) + theme(legend.position="None")
+NetMigDivRateBar
+```
+
+* Notably, the South Atlantic and West South Central divisions have a comparatively large net migration rate while the East North Central and Middle Atlantic divisions have a net migration rate lower than 0.
+
+## Migration Rates (Highest and Lowest) {.tabset}
+
+It looks like there are some large differences among the divisions. I am interested to see which states are affecting the trends.
+
+### Int. Migration (Low)
+```{r, message=FALSE, warning=FALSE}
+# States with 10 lowest international migration rates by division and state
+
+# Creating table of states with 10 lowest international migration rates
+IntMigRateLow <- select(Census2014, State, Division, IntMigRate) %>%
+  filter(IntMigRate <= sort(IntMigRate)[10]) %>%
+  mutate(IntMigRate = round(IntMigRate, 2))
+
+# Table of states with 10 lowest international migration rates
+IntMigRateLow %>%
+  arrange(desc(IntMigRate))
+
+# Graph of states with 10 lowest international migration rates
+IntMigRateLowBar <- ggplot(IntMigRateLow, aes(reorder(State, IntMigRate), IntMigRate, fill=Division)) # Creating the basic graph
+IntMigRateLowBar <- IntMigRateLowBar + geom_col() + coord_flip() + labs(y="International Migration Rate (per Thousand)", x="State", title="International Migration Rate (per Thousand) by State")  + scale_fill_manual(values=DivColMap)
+IntMigRateLowBar
+```
+
+* It appears that there is no outlier within the bottom 10 international migration rates, but there are some trends within the divisions that are represented.
+* Half of the states in the Mountain and East South Central divisions are in the lowest 10.
+
+### Int. Migration (High)
+```{r, message=FALSE, warning=FALSE}
+# States with 10 highest international migration rates by division and state
+
+# Creating table of states with 10 highest international migration rates
+IntMigRateHigh <- select(Census2014, State, Division, IntMigRate) %>%
+  filter(IntMigRate >= sort(IntMigRate)[41]) %>%
+  mutate(IntMigRate = round(IntMigRate, 2))
+
+# Table of states with 10 highest international migration rates
+IntMigRateHigh %>%
+  arrange(desc(IntMigRate))
+
+# Graph of states with 10 highest international migration rates
+IntMigRateHighBar <- ggplot(IntMigRateHigh, aes(reorder(State, IntMigRate), IntMigRate, fill=Division)) # Creating the basic graph
+IntMigRateHighBar <- IntMigRateHighBar + geom_col() + coord_flip() + labs(y="International Migration Rate (per Thousand)", x="State", title="International Migration Rate (per Thousand) by State")  + scale_fill_manual(values=DivColMap)
+IntMigRateHighBar
+```
+
+* Naturally, there is a very strong trend with the highest 10 international migration rates: _all the states border an ocean_! Thus, all the states are either on the east or west coasts
+* The results are unsurprising otherwise.
+
+### Dom. Migration (Low)
+```{r, message=FALSE, warning=FALSE}
+# Lowest domestic migration rates by state and division
+
+# Creating table of states with the 10 lowest domestic migration rates
+DomMigRateLow <- select(Census2014, State, Division, DomMigRate) %>%
+  filter(DomMigRate <= sort(DomMigRate)[10]) %>%
+  mutate(DomMigRate = round(DomMigRate, 2))
+
+# Table of states with the 10 lowest domestic migration rates
+DomMigRateLow %>%
+  arrange(desc(DomMigRate))
+
+# Graph of states with the 10 lowest domestic migration rates
+DomMigRateLowBar <- ggplot(DomMigRateLow, aes(reorder(State, DomMigRate), DomMigRate, fill=Division)) # Creating the basic plot
+DomMigRateLowBar<- DomMigRateLowBar + geom_col() + coord_flip() + labs(y="Domestic Migration Rate (per Thousand)", x="State", title="Domestic Migration Rate (per Thousand) by State")  + scale_fill_manual(values=DivColMap)
+DomMigRateLowBar
+```
+
+* First thing's first - a lot of states are losing a lot of people through domestic migration. Especially pronounced are Alaska, New York, Illinois, and Connecticut, with New Mexico and New Jersey not far behind in terms of percentage of population.
+* It looks like there is quite a spread in terms of divisions represented.
+
+### Dom. Migration (High)
+```{r, message=FALSE, warning=FALSE}
+# Highest domestic migration rates by state and division
+
+# Creating table of states with the 10 highest domestic migration rates
+DomMigRateHigh <- select(Census2014, State, Division, DomMigRate) %>%
+  filter(DomMigRate >= sort(DomMigRate)[41]) %>%
+  mutate(DomMigRate = round(DomMigRate, 2))
+
+# Table of states with the 10 highest domestic migration rates
+DomMigRateHigh %>%
+  arrange(desc(DomMigRate))
+
+# Graph of states with the 10 highest domestic migration rates
+DomMigRateHighBar <- ggplot(DomMigRateHigh, aes(reorder(State, DomMigRate), DomMigRate, fill=Division)) # Creating the basic plot
+DomMigRateHighBar<- DomMigRateHighBar + geom_col() + coord_flip() + labs(y="Domestic Migration Rate (per Thousand)", x="State", title="Domestic Migration Rate (per Thousand) by State")  + scale_fill_manual(values=DivColMap)
+DomMigRateHighBar
+```
+
+* Woah, North Dakota is gaining a lot of people (percentage-wise)! Nevada, South Carolina, Colorado, and Florida are next highest.
+* Half of the states in the West South Central division are represented, almost 40% of South Atlantic and Mountain states are also represented.
+
+### Net Migration (Low)
+```{r, message=FALSE, warning=FALSE}
+# Lowest net migration rates by state and division
+
+# Creating table of states with 10 lowest net migration rates
+NetMigRateLow <- select(Census2014, State, Division, NetMigRate) %>%
+  filter(NetMigRate <= sort(NetMigRate)[10]) %>%
+  mutate(NetMigRate = round(NetMigRate, 2))
+
+# Table of states with 10 lowest net migration rates
+NetMigRateLow %>%
+  arrange(desc(NetMigRate))
+
+# Graph of states with 10 lowest net migration rates
+NetMigRateLowBar <- ggplot(NetMigRateLow, aes(reorder(State, NetMigRate), NetMigRate, fill=Division)) # Creating basic graph
+NetMigRateLowBar <- NetMigRateLowBar + geom_col() + coord_flip() + labs(y="Net Migration Rate (per Thousand)", x="State", title="Net Migration Rate (per Thousand) by State")  + scale_fill_manual(values=DivColMap)
+NetMigRateLowBar
+```
+
+* As this is just the addition of the international and domestic migration rates, it is unsurprising that Alaska is so low. 
+* A scary note: the bottom 10 states are losing people in terms from migration! 
+
+### Net Migration (High)
+```{r, message=FALSE, warning=FALSE}
+# Highest net migration rates by state and division
+
+# Creating table of states with 10 highest net migration rates
+NetMigRateHigh <- select(Census2014, State, Division, NetMigRate) %>%
+  filter(NetMigRate >= sort(NetMigRate)[41]) %>%
+  mutate(NetMigRate = round(NetMigRate, 2))
+
+# Table of states with 10 highest net migration rates
+NetMigRateHigh %>%
+  arrange(desc(NetMigRate))
+
+# Graph of states with 10 highest net migration rates
+NetMigRateHighBar <- ggplot(NetMigRateHigh, aes(reorder(State, NetMigRate), NetMigRate, fill=Division)) # Creating basic graph
+NetMigRateHighBar <- NetMigRateHighBar + geom_col() + coord_flip() + labs(y="Net Migration Rate (per Thousand)", x="State", title="Net Migration Rate (per Thousand) by State")  + scale_fill_manual(values=DivColMap)
+NetMigRateHighBar
+```
+
+* It is quite apparent that some states are benefitting greatly from net migration, namely North Dakota, Florida, and Nevada. 
+* Regardless, all top 10 states in this category are gaining many people (in terms of percentage) through migration! 
+* Almost 40% of the South Atlantic division and 50% of the West South Central division are represented in the top 10.
+
+## Migration Maps (Actual Numbers) {.tabset}
+
+Although looking at the percentages of population can be useful, it is important to keep these statistics in context. 
+
+I am now going to look at the actual numbers of people instead of rates. I suspect that, although North Dakota and Alaska are outliers in terms of rates, their numbers of migrants will be small compared with larger states' numbers.
+
+I will start off by creating our variables and mapping them for reference. I suspect that they will look a lot like the 2014 population chart up above.
+
+I found it somewhat surprising that, when looking at the actual numbers, the maps completely change.
+```{r, message=FALSE, warning=FALSE}
+# Creating Population Variables
+Census2014$IntMig <- round(((Census2014$IntMigRate / 1000) * Census2014$Population), digits=0) # International Migration Numbers
+Census2014$DomMig <- round(((Census2014$DomMigRate / 1000) * Census2014$Population), digits=0) # Domestic Migration Numbers
+Census2014$NetMig <- round(((Census2014$NetMigRate / 1000) * Census2014$Population), digits=0) # Net Migration Numbers
+```
+
+### Int. Migration
+```{r, message=FALSE, warning=FALSE}
+# International Migration Map
+IntMig <- USMap # Loading the map
+IntMig <- IntMig + geom_map(data=Census2014, map=us, aes(fill=(IntMig/1000), map_id=State), color="#ffffff")
+IntMig <- IntMig + theme(panel.border=element_blank(), panel.background=element_blank(), axis.ticks=element_blank(), axis.text=element_blank()) + labs(x=NULL, y=NULL, fill=NULL, title="International Migration (Thousands)") + coord_map("albers", lat0=39, lat1=45) # Making the map beautiful
+IntMig
+```
+
+### Dom. Migration
+```{r, message=FALSE, warning=FALSE}
+# Domestic Migration Map
+DomMig <- USMap # Loading the map
+DomMig <- DomMig + geom_map(data=Census2014, map=us, aes(fill=(DomMig/1000), map_id=State), color="#ffffff")
+DomMig <- DomMig + theme(panel.border=element_blank(), panel.background=element_blank(), axis.ticks=element_blank(), axis.text=element_blank()) + labs(x=NULL, y=NULL, fill=NULL, title="Domestic Migration (Thousands)") + coord_map("albers", lat0=39, lat1=45) + scale_fill_gradient2(low="red", mid="grey", high="green") # Making the map beautiful
+DomMig
+```
+
+### Net Migration
+```{r, message=FALSE, warning=FALSE}
+# Net Migration Map
+NetMig <- USMap # Loading the map
+NetMig <- NetMig + geom_map(data=Census2014, map=us, aes(fill=(NetMig/1000), map_id=State), color="#ffffff")
+NetMig <- NetMig + theme(panel.border=element_blank(), panel.background=element_blank(), axis.ticks=element_blank(), axis.text=element_blank()) + labs(x=NULL, y=NULL, fill=NULL, title="Net Migration (Thousands)") + coord_map("albers", lat0=39, lat1=45) + scale_fill_gradient2(low="red", mid="grey", high="green") # Making the map beautiful
+NetMig
+```
+
+## Highest and Lowest Migration Numbers (Actual Numbers) {.tabset}
+
+Before I begin drawing conclusions, I think the correlation of these populations to the total population of a state should be checked to put this into further context.
+
+```{r, warning=FALSE, message=FALSE, collapse=TRUE}
+# Correlations of Populations
+
+# Correlation between population and international migration
+print("Population and International Migration: ", quote=FALSE); cor(Census2014$Population, Census2014$IntMig)
+
+# Correlation between population and domestic migration
+print("Population and Domestic Migration", quote=FALSE); cor(Census2014$Population, Census2014$DomMig)
+
+# Correlation between population and net migration
+print("Population and Net Migration", quote=FALSE); cor(Census2014$Population, Census2014$NetMig)
+```
+
+* The correlations show:
+    + The proportion of international migrants that come to a state (out of all the international migrants) very closely resembles the proportion of that state's population to the US population as a whole. 
+    + The migration of people within the US has very little to do with the population of the state they are moving to or from.
+    + A state's population strongly correlates with the net number of migrants.
+
+Here is the top and bottom 10 for each category in tabular format.
+
+### Int. Migration (Low)
+```{r, message=FALSE, warning=FALSE}
+# States with 10 Smallest International Migrant Populations
+
+# Creating table of states with 10 smallest international migrant populations for reference
+IntMigLow <- select(Census2014, State, Division, IntMig) %>%
+  filter(IntMig <= sort(IntMig)[10]) %>%
+  mutate(IntMig = round(IntMig, 1))
+
+# Table of states with 10 smallest international migrant populations
+IntMigLow %>%
+  arrange(IntMig)
+
+# Graph of states with 10 smallest international migrant populations
+IntMigPopLow <- ggplot(IntMigLow, aes(reorder(State, IntMig), IntMig, fill=Division)) # Creating basic graphic
+IntMigPopLow <- IntMigPopLow + geom_col() + coord_flip() + labs(y="International Migrant Population", x="State", title="States with 10 Smallest International Migrant Populations") + scale_fill_manual(values=DivColMap)
+IntMigPopLow
+```
+
+* As I suspected, the positions of the states changed when looking at numbers instead of rates.
+* That being said, six out of 10 states in the same category, when listed as rates, remain (Idaho, Montana, Wyoming, Maine, Vermont, West Virginia). 
+* These 10 states do not have many people moving to them internationally, but they are some of the lowest-populated states in the US.
+
+### Int. Migration (High)
+```{r, message=FALSE, warning=FALSE}
+# States with 10 Largest International Migrant Populations
+
+# Creating table of states with 10 largest international migrant populations
+IntMigHigh <- select(Census2014, State, Division, IntMig) %>%
+  filter(IntMig >= sort(IntMig)[41]) %>%
+  mutate(IntMig = round(IntMig/1000, 1))
+
+# Table of states with 10 largest international migrant populations
+IntMigHigh %>%
+  arrange(desc(IntMig)) %>%
+  rename('IntMig (Thousands)' = IntMig) # Highest 10 international migration populations
+
+# Graph of states with 10 largest international migrant populations
+IntMigPopHigh <- ggplot(IntMigHigh, aes(reorder(State, IntMig), IntMig, fill=Division)) # Creating basic table
+IntMigPopHigh <- IntMigPopHigh + geom_col() + coord_flip() + labs(y="International Migrant Population (Thousands)", x="State", title="States with 10 Largest International Migrant Populations (Thousands)") + scale_fill_manual(values=DivColMap)
+IntMigPopHigh
+```
+
+* Unsurprisingly, the highest rates of immigration to the US take place in the highest-populated states, such as New York, California, Florida, and Texas. 
+* Although the states with the top 10 international migration rates were on the coast, only 8 of the 10 states in this category lie on the coast (Illinois and Pennsylvania do not, although Pennsylvania is incredibly close).
+
+### Dom. Migration (Low)
+```{r, message=FALSE, warning=FALSE}
+# 10 Smallest Domestic Migrant Populations by State and Division
+
+# Creating table of states with 10 smallest domestic migrant populations for quick reference
+DomMigLow <- select(Census2014, State, Division, DomMig) %>%
+  filter(DomMig <= sort(DomMig)[10]) %>%
+  mutate(DomMig = round(DomMig/1000, 1))
+
+# Table of states with 10 smallest domestic migrant populations
+DomMigLow %>%
+  arrange(DomMig) %>%
+  rename('DomMig (Thousands)' = DomMig)
+
+# Graph of states with 10 smallest domestic migrant populations
+DomMigPopLow <- ggplot(DomMigLow, aes(reorder(State, DomMig), DomMig, fill=Division)) # Creating basic graphic
+DomMigPopLow <- DomMigPopLow + geom_col() + coord_flip() + labs(y="Domestic Migrant Population (Thousands)", x="States", title="States with Smallest Domestic Migrant Populations (Thousands)") + scale_fill_manual(values=DivColMap)
+DomMigPopLow
+```
+
+* As with the lowest 10 domestic migration rates, these 10 states are losing people (both the rates and actual numbers, of course, are both negative), though New York, Illinois, and New Jersey are losing the most quickly. 
+* Although Alaska lost over 13 per 1,000 of their population due to domestic migration, their population is so low that they do not even appear on the bottom 10 list in terms of number of people.
+* Similarly, Connecticut lost only 6 out of 10,000 less of their population than New York, but New York lost almost 6 times the amount of people due to domestic migration.
+
+### Dom. Migration (High)
+```{r, message=FALSE, warning=FALSE}
+# 10 Largest Domestic Migrant Populations by State and Division
+
+# Creating table of states with 10 largest domestic migrant populations for quick reference
+DomMigHigh <- select(Census2014, State, Division, DomMig) %>%
+  filter(DomMig >= sort(DomMig)[41]) %>%
+  mutate(DomMig = round(DomMig/1000, 1))
+
+# Table of states with 10 largest domestic migrant populations
+DomMigHigh %>%
+  arrange(desc(DomMig)) %>%
+  rename('DomMig (Thousands)' = DomMig)
+
+# Graph of states with 10 lowest domestic migrant populations
+DomMigPopHigh <- ggplot(DomMigHigh, aes(reorder(State, DomMig), DomMig, fill=Division)) # Creating basic graphic
+DomMigPopHigh <- DomMigPopHigh + geom_col() + coord_flip() + labs(y="Domestic Migrant Population (Thousands)", x="States", title="States with Largest Domestic Migrant Populations (Thousands)") + scale_fill_manual(values=DivColMap)
+DomMigPopHigh
+```
+
+* Texas and Florida gained a lot of people through domestic migration, with third and fourth place coming in with Arkansas and Colorado, respectively.
+* North Dakota, South Carolina, and Nevada gained the most people (in terms of percentage of their state populations) through domestic migration, but only South Carolina and Nevada appear on this list, and they did not gain nearly as many people as Texas or Florida.
+* No states in the Midwest or north east are on this list, perhaps indicating that people are moving south and west.
+
+
+### Net Migration (Low)
+```{r, message=FALSE, warning=FALSE}
+# 10 Smallest Net Migrant Populations by State and Division
+
+# Creating table for states with 10 smallest net migration populations for quick reference
+NetMigLow <- select(Census2014, State, Division, NetMig) %>%
+  filter(NetMig <= sort(NetMig)[10]) %>%
+  mutate(NetMig = round(NetMig/1000, 1))
+
+# Table with states with 10 smallest net migration populations
+NetMigLow %>%
+  arrange(NetMig) %>%
+  rename('NetMig (Thousands)' = NetMig) 
+
+# Graph with states with 10 smallest net migration populations
+NetMigPopLow <- ggplot(NetMigLow, aes(reorder(State, NetMig), NetMig, fill=Division)) # Creating basic graphic
+NetMigPopLow <- NetMigPopLow + geom_col() + coord_flip() + labs(y="Net Migration Population (Thousands)", x = "States", title="States with 10 Smallest Net Migration Populations (Thousands)") + scale_fill_manual(values = DivColMap) # Making the graphic pretty
+NetMigPopLow
+```
+
+* Unsurprisingly, Illinois and New York bottom this list due to their domestic migration. However, New Mexico is losing a lot of people as well. 
+* Although Alaska is losing almost 11 per 1,000 and Illinois almost 5 per 1,000 of their populations through net migration, Alaska is only losing about 1/8 the number of people as Illinois.
+* Sixty percent of the East North Central division and 67% of the Middle Atlantic division are represented in this category.
+
+### Net Migration (High)
+```{r, message=FALSE, warning=FALSE}
+# 10 Highest Net Migrant Populations by State and Division
+
+# Creating table for states with 10 largest net migration populations for quick reference
+NetMigHigh <- select(Census2014, State, Division, NetMig) %>%
+  filter(NetMig >= sort(NetMig)[41]) %>%
+  mutate(NetMig = round(NetMig/1000, 1))
+
+# Table with states with 10 largest net migration populations
+NetMigHigh %>%
+  arrange(desc(NetMig)) %>%
+  rename('NetMig (Thousands)' = NetMig) 
+
+# Graph with states with 10 largest net migration populations
+NetMigPopHigh <- ggplot(NetMigHigh, aes(reorder(State, NetMig), NetMig, fill=Division)) # Creating basic graphic
+NetMigPopHigh <- NetMigPopHigh + geom_col() + coord_flip() + labs(y="Net Migration Population (Thousands)", x = "States", title="States with 10 Largest Net Migration Populations (Thousands)") + scale_fill_manual(values = DivColMap) # Making the graphic pretty
+NetMigPopHigh
+```
+
+* Nevada, Florida, and North Dakota all gained over 1% more population through net migration, though only Florida is within the top 10 in terms of number of people. 
+* Texas, Florida, and California are gaining huge numbers of people through net migration.
+* Fifty percent of the South Atlantic and West South Central divisions are represented in this category.
+
+## Overall Notes on Migration
+
+* Overall Notes on Migration (actual numbers):
+    + A large amount of people are moving across the country, especially out of New York and Illinois and to Texas, Florida, and California.
+    + Although New York received the second-highest number of international immigrants, it lost more people through domestic migration than gained through international migration. This seemed to be the case throughout the Middle Atlantic and in the coastal states of New England (Massachusetts, Connecticut, and Rhode Island) as well.
+    + States like Florida, Texas, and California gained large amounts of people through both international and domestic migration.
+    + People seem to be moving south and west, although they may enter the country in the northern states.
+
+* Overall Notes on Migration When Comparing Rates and Actual Totals:
+    + It is important to look at both rates and actual numbers to give the entire picture. For instance, Alaska lost over 1% of its population through net migration, but that amounts to only about 8,020 people whereas Illinois lost almost 0.5% of its population, amounting to about 62,500 people.
+    + As the correlation between population and international migration is so large, it is easy to see how more populous states would gain a greater number of people. Given that the most populous states are on the coasts (for the most part), this also makes sense.
+    + By looking at the actual numbers instead of rates, we can see that a *much* larger number of people are moving domestically away from the northeast and going to the south and west, although it looks like the the numbers are more spread out when looking at percents.
+
+## Population Changes by Division {.tabset}
+
+As we saw in the last section, masses of people are moving domestically throughout the US. I will now look at this a bit more closely by observing the numbers and percentages by divisions instead of individual states.
+
+```{r, warning=FALSE, message=FALSE}
+# Creating the variables to use for maps and analysis
+
+# Population by division
+Census2014$PopDiv[Census2014$Division == "East North Central"] <- sum(Census2014$Population[Census2014$Division == "East North Central"])
+Census2014$PopDiv[Census2014$Division == "East South Central"] <- sum(Census2014$Population[Census2014$Division == "East South Central"])
+Census2014$PopDiv[Census2014$Division == "Middle Atlantic"] <- sum(Census2014$Population[Census2014$Division == "Middle Atlantic"])
+Census2014$PopDiv[Census2014$Division == "Mountain"] <- sum(Census2014$Population[Census2014$Division == "Mountain"])
+Census2014$PopDiv[Census2014$Division == "New England"] <- sum(Census2014$Population[Census2014$Division == "New England"])
+Census2014$PopDiv[Census2014$Division == "Pacific"] <- sum(Census2014$Population[Census2014$Division == "Pacific"])
+Census2014$PopDiv[Census2014$Division == "South Atlantic"] <- sum(Census2014$Population[Census2014$Division == "South Atlantic"])
+Census2014$PopDiv[Census2014$Division == "West North Central"] <- sum(Census2014$Population[Census2014$Division == "West North Central"])
+Census2014$PopDiv[Census2014$Division == "West South Central"] <- sum(Census2014$Population[Census2014$Division == "West South Central"])
+
+# Population change (numbers) by division
+Census2014$PopChangeDiv[Census2014$Division == "East North Central"] <- sum(Census2014$PopChange2014[Census2014$Division == "East North Central"])
+Census2014$PopChangeDiv[Census2014$Division == "East South Central"] <- sum(Census2014$PopChange2014[Census2014$Division == "East South Central"])
+Census2014$PopChangeDiv[Census2014$Division == "Middle Atlantic"] <- sum(Census2014$PopChange2014[Census2014$Division == "Middle Atlantic"])
+Census2014$PopChangeDiv[Census2014$Division == "Mountain"] <- sum(Census2014$PopChange2014[Census2014$Division == "Mountain"])
+Census2014$PopChangeDiv[Census2014$Division == "New England"] <- sum(Census2014$PopChange2014[Census2014$Division == "New England"])
+Census2014$PopChangeDiv[Census2014$Division == "Pacific"] <- sum(Census2014$PopChange2014[Census2014$Division == "Pacific"])
+Census2014$PopChangeDiv[Census2014$Division == "South Atlantic"] <- sum(Census2014$PopChange2014[Census2014$Division == "South Atlantic"])
+Census2014$PopChangeDiv[Census2014$Division == "West North Central"] <- sum(Census2014$PopChange2014[Census2014$Division == "West North Central"])
+Census2014$PopChangeDiv[Census2014$Division == "West South Central"] <- sum(Census2014$PopChange2014[Census2014$Division == "West South Central"])
+
+# Population change (rates) by division
+Census2014$PopChangeRateDiv <- round(1 + (Census2014$PopChangeDiv/(Census2014$PopDiv-Census2014$PopChangeDiv)), digits=4)
+```
+
+### Population
+```{r, warning=FALSE, message=FALSE}
+# Populations of Divisions
+PopDiv <- USMap # Loading the map
+PopDiv <- PopDiv + geom_map(data=Census2014, map=us, aes(fill=(PopDiv/1000000), map_id=State), color="#ffffff")
+PopDiv <- PopDiv + theme(panel.border=element_blank(), panel.background=element_blank(), axis.ticks=element_blank(), axis.text=element_blank()) + labs(x=NULL, y=NULL, fill=NULL, title="Population by Division (Millions)") + coord_map("albers", lat0=39, lat1=45) # Making the map more beautiful
+PopDiv
+```
+
+### Pop. Change 
+```{r, warning=FALSE, message=FALSE}
+# Population Change (Numbers) of Divisions
+PopChangeDiv <- USMap # Loading the map
+PopChangeDiv <- PopChangeDiv + geom_map(data=Census2014, map=us, aes(fill=(PopChangeDiv/1000), map_id=State), color="#ffffff")
+PopChangeDiv <- PopChangeDiv + theme(panel.border=element_blank(), panel.background=element_blank(), axis.ticks=element_blank(), axis.text=element_blank()) + labs(x=NULL, y=NULL, fill=NULL, title="Population Change by Division (Thousands)") + coord_map("albers", lat0=39, lat1=45)
+PopChangeDiv
+```
+
+### Pop. Change Rate
+```{r, warning=FALSE, message=FALSE}
+# Population Change (Rates) of Divisions
+PopChangeRateDiv <- USMap # Loading the map
+PopChangeRateDiv <- PopChangeRateDiv + geom_map(data=Census2014, map=us, aes(fill=PopChangeRateDiv, map_id=State), color="#ffffff")
+PopChangeRateDiv <- PopChangeRateDiv + theme(panel.border=element_blank(), panel.background=element_blank(), axis.ticks=element_blank(), axis.text=element_blank()) + labs(x=NULL, y=NULL, fill=NULL, title="Population Change Rate by Division") + coord_map("albers", lat0=39, lat1=45) # Making the map more beautiful
+PopChangeRateDiv
+```
+
+### Divisions Map
+```{r, warning=FALSE, message=FALSE}
+# Here's the division map for reference
+GGDivision
+```
+
+Here is the information in tabular format for reference.
+
+```{r, warning=FALSE, message=FALSE}
+# Tabling Populations and Changes by Division
+
+group_by(Census2014, Division) %>%
+  summarise(PopChangeRateDiv = mean(PopChangeRateDiv), PopChangeDiv = round(mean(PopChangeDiv/1000), 2), PopDiv = round(mean(PopDiv/1000000), 2)) %>%
+  rename('Pop. Change Rate' = PopChangeRateDiv, 'Pop. Change (K)' = PopChangeDiv, 'Pop. (MM)' = PopDiv)
+
+```
+
+Notes on Maps  
+* Population:
+    + As we can see from the map and table, the South Atlantic division has the most population at almost 62 million. The Pacific is next, followed by East North Central, West South Central, and Middle Atlantic. 
+    + The most populous states are along a coast to an ocean or the great lakes.
+
+* Population Change:
+    + Although states in the New England and Middle Atlantic divisions lost many people through domestic migration, every division gained people. 
+    + The South Atlantic, West South Central, and Pacific divisions gained the most people. These division also grew the fastest (in addition to the Mountain division).
+    + As previously discussed, the conclusion that people are moving south and west seems to be supported by looking at these date on a division-level.
+
+# Final Conclusions
+
+* The most populous regions of the US are along the coasts, specifically in Florida, Texas, California, and New York. However, the most populous areas are the South Atlantic, Pacific, and East North Central divisions.
+* Utah has a crazy high birth rate while the northeastern states have a crazy low birth rate. The west-midwestern, mountain, and pacific states are increasing their numbers naturally at a high rate.
+* Every state gained people through international immigration, though many states lost a high number of people through domestic migration (New York, Illinois, New Jersey), especially the northeastern states.
+* Many states also gained a lot of people through migration, whether it be domestic or international. Some example states include Texas, California, and Florida. 
+* On a larger level, people seem to be moving south and west, with the West South Central, Mountain, South Atlantic, and Pacific divisions growing the most quickly.
+
+---
